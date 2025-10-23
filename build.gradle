@@ -20,6 +20,7 @@ allprojects {
     }
 }
 
+// Apply common configuration to all nested subprojects
 subprojects {
     apply plugin: 'maven-publish'
 
@@ -34,13 +35,25 @@ subprojects {
     }
 }
 
+// Configure projects by category using nested project syntax
+apply from: 'projects.gradle'
+
+gradle.ext.projectDirs.each { projectName, dir ->
+    project(":${dir}:${projectName}") {
+        // Project-specific configuration can be added here
+        // Currently inherits from subprojects block above
+    }
+}
+
 ext {
     // Define the focused projects here. Example: only project-001 and project-002 are in focus
     focusedProjects = ['project-057']
 
     // Method to return project dep if in focus, else jar dep
+    // projectName format: :category:project-XXX
     focusedDep = { projectName, jarCoord ->
-        def projName = projectName.replace(':', '')  // remove leading :
+        // Extract just the project name (project-XXX) from :category:project-XXX
+        def projName = projectName.tokenize(':').last()
         if (focusedProjects.contains(projName)) {
             return project(projectName)
         } else {

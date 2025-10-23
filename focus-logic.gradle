@@ -4,13 +4,14 @@
 ext.depMap = [:]
 ext.reverseDepMap = [:]
 
-gradle.ext.allProjects.each { proj ->
-    def file = new File(settingsDir, "${proj}/build.gradle")
+gradle.ext.projectDirs.each { proj, dir ->
+    def file = new File(settingsDir, "${dir}/${proj}/build.gradle")
     if (file.exists()) {
         def content = file.text
-        def matches = content =~ /focusedDep\(':project-(\d+)'/
+        def matches = content =~ /focusedDep\(':(\w+):project-(\d+)'/
         matches.each { match ->
-            def depNum = match[1].toInteger()
+            def depCategory = match[1]
+            def depNum = match[2].toInteger()
             def dep = String.format('project-%03d', depNum)
             if (!ext.depMap.containsKey(proj)) ext.depMap[proj] = []
             ext.depMap[proj] << dep
@@ -59,7 +60,11 @@ println "Focus logic: set system property focus.includedProjects"
 
 // Include only the computed projects
 println "Focus logic: including projects: $included"
-included.each { 
-    println "Including project: $it"
-    include it 
+included.each { proj ->
+    def dir = gradle.ext.projectDirs[proj]
+    if (dir) {
+        def projectPath = ":${dir}:${proj}"
+        println "Including project: $projectPath"
+        include projectPath
+    }
 }
