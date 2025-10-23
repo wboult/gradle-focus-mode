@@ -1,0 +1,17 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.example'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    implementation focusedDep(':project-011', 'com.example:project-011:1.0-SNAPSHOT')
+    implementation focusedDep(':project-010', 'com.example:project-010:1.0-SNAPSHOT')
+}
+

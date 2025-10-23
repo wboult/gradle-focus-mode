@@ -1,0 +1,15 @@
+rootProject.name = 'focus-mode'
+
+// Load project list
+apply from: 'projects.gradle'
+
+// Experimental focus mode - set to true to enable dynamic project inclusion
+def enableFocusMode = true
+
+if (enableFocusMode) {
+    // Apply focus mode logic
+    apply from: 'focus.gradle'
+} else {
+    // Standard mode: include all projects
+    gradle.ext.allProjects.each { include it }
+}

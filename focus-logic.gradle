@@ -1,0 +1,56 @@
+// Focus mode logic - builds dependency graph and includes selected projects
+
+// Build dependency graph
+ext.depMap = [:]
+ext.reverseDepMap = [:]
+
+gradle.ext.allProjects.each { proj ->
+    def file = new File(settingsDir, "${proj}/build.gradle")
+    if (file.exists()) {
+        def content = file.text
+        def matches = content =~ /focusedDep\(':project-(\d+)'/
+        matches.each { match ->
+            def depNum = match[1].toInteger()
+            def dep = String.format('project-%03d', depNum)
+            if (!ext.depMap.containsKey(proj)) ext.depMap[proj] = []
+            ext.depMap[proj] << dep
+            if (!ext.reverseDepMap.containsKey(dep)) ext.reverseDepMap[dep] = []
+            ext.reverseDepMap[dep] << proj
+        }
+    }
+}
+
+// Get transitive dependencies (upstream)
+def getTransitiveDeps(String proj, Set visited = new HashSet()) {
+    if (!visited.add(proj)) return []
+    def deps = ext.depMap[proj] ?: []
+    deps + deps.collectMany { getTransitiveDeps(it, visited) }
+}
+
+// Get dependents up to N hops (downstream)
+def getDependents(String proj, int hops, Set visited = new HashSet()) {
+    if (hops < 0 || !visited.add(proj)) return []
+    def dependents = ext.reverseDepMap[proj] ?: []
+    [proj] + dependents.collectMany { getDependents(it, hops - 1, visited) }
+}
+
+// Compute included projects
+def included = new HashSet()
+ext.focusedProjects.each { proj ->
+    included.addAll(getTransitiveDeps(proj))
+    included.addAll(getDependents(proj, ext.downstreamHops))
+}
+
+println "Focus mode: focused projects: ${ext.focusedProjects}"
+println "Focus mode: included projects: $included"
+
+// Store for IDEA exclusion
+System.setProperty('focus.includedProjects', included.join(','))
+println "Focus logic: set system property focus.includedProjects"
+
+// Include only the computed projects
+println "Focus logic: including projects: $included"
+included.each { 
+    println "Including project: $it"
+    include it 
+}

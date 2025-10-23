@@ -1,0 +1,13 @@
+package com.example;
+
+public class Project054 {
+    public static void main(String[] args) {
+        System.out.println("Hello from project-054");
+        new Project042().doSomething();
+        new Project043().doSomething();
+    }
+
+    public void doSomething() {
+        System.out.println("project-054 doing something");
+    }
+}

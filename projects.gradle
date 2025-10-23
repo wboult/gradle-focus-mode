@@ -1,0 +1,2 @@
+// List of all projects
+gradle.ext.allProjects = (1..100).collect { String.format('project-%03d', it) }

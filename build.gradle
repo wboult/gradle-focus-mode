@@ -1,0 +1,69 @@
+plugins {
+    id 'java'
+}
+
+allprojects {
+    apply plugin: 'maven-publish'
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+
+    afterEvaluate {
+        publishing {
+            publications {
+                maven(MavenPublication) {
+                    from components.java
+                }
+            }
+        }
+    }
+}
+
+ext {
+    // Define the focused projects here. Example: only project-001 and project-002 are in focus
+    focusedProjects = ['project-057']
+
+    // Method to return project dep if in focus, else jar dep
+    focusedDep = { projectName, jarCoord ->
+        def projName = projectName.replace(':', '')  // remove leading :
+        if (focusedProjects.contains(projName)) {
+            return project(projectName)
+        } else {
+            return jarCoord
+        }
+    }
+}
+
+task publishAllToMavenLocal {
+    dependsOn subprojects.collect { it.tasks.named('publishToMavenLocal') }
+}
+
+// Task to apply focus mode (writes exclusions directly)
+task applyFocus {
+    group = 'focus'
+    description = 'Apply focus mode by writing exclusions directly'
+    doLast {
+        def includedStr = System.getProperty('focus.includedProjects')
+        if (includedStr) {
+            def included = includedStr.split(',') as Set
+            def allProjects = (1..100).collect { String.format('project-%03d', it) }
+            def excludedProjects = allProjects.findAll { !included.contains(it) }
+
+            // Write to .idea/modules/focus-mode.iml
+            def imlFile = file('.idea/modules/focus-mode.iml')
+            imlFile.parentFile.mkdirs()
+            def excludeXml = excludedProjects.collect { "<excludeFolder url=\"file://\$MODULE_DIR\$/../../$it\" />" }.join('\n')
+            imlFile.text = """<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="AdditionalModuleElements">
+    <content url="file://\$MODULE_DIR\$/../.." dumb="true">
+${excludeXml}
+    </content>
+  </component>
+</module>"""
+            println "Wrote exclusions to .idea/modules/focus-mode.iml for: $excludedProjects"
+        }
+    }
+}
