@@ -1,19 +1,9 @@
-plugins {
-    id 'java'
+project(":features:project-044") {
+    apply plugin: 'java'
+
+    dependencies {
+        implementation focusedDep(':ui:project-014', 'com.example:ui:project-014:1.0-SNAPSHOT')
+        implementation focusedDep(':services:project-028', 'com.example:services:project-028:1.0-SNAPSHOT')
+        implementation focusedDep(':core:project-006', 'com.example:core:project-006:1.0-SNAPSHOT')
+    }
 }
-
-group = 'com.example'
-version = '1.0-SNAPSHOT'
-
-repositories {
-    mavenCentral()
-    mavenLocal()
-}
-
-dependencies {
-    implementation focusedDep(':ui:project-014', 'com.example:ui:project-014:1.0-SNAPSHOT')
-    implementation focusedDep(':services:project-028', 'com.example:services:project-028:1.0-SNAPSHOT')
-    implementation focusedDep(':core:project-006', 'com.example:core:project-006:1.0-SNAPSHOT')
-}
-
-

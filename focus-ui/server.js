@@ -49,8 +49,8 @@ const projectDirs = [
 'core', 'ui', 'services', 'features', 'infrastructure', 'extensions'
 ];
 
-const projects = [];
-const projectPaths = {}; // Map flat project name to its directory path
+const projects = []; // Will store full paths like ':core:project-001'
+const projectInfo = {}; // Map full path to { dir, name, fsPath }
 
 projectDirs.forEach(dir => {
 const dirPath = path.join(__dirname, '..', dir);
@@ -58,8 +58,13 @@ if (fs.existsSync(dirPath)) {
 const items = fs.readdirSync(dirPath);
 items.forEach(item => {
 if (item.startsWith('project-')) {
-        projects.push(item);
-            projectPaths[item] = path.join(dir, item);
+        const fullPath = `:${dir}:${item}`;
+        projects.push(fullPath);
+        projectInfo[fullPath] = {
+            dir,
+            name: item,
+            fsPath: path.join(dir, item)
+        };
             }
             });
     }
@@ -67,30 +72,31 @@ if (item.startsWith('project-')) {
 
 depMap = {};
 reverseDepMap = {};
-projects.forEach(proj => {
-const filePath = path.join(__dirname, '..', projectPaths[proj], 'build.gradle');
+projects.forEach(fullPath => {
+const info = projectInfo[fullPath];
+const filePath = path.join(__dirname, '..', info.fsPath, 'build.gradle');
 if (fs.existsSync(filePath)) {
 const content = fs.readFileSync(filePath, 'utf8');
-const matches = [...content.matchAll(/focusedDep\(':([^:]+):([^']+)'/g)];
-// Extract just the project name (last part after colon) from nested path like :core:project-001
-depMap[proj] = matches.map(match => match[2]); // match[2] is project-XXX
-depMap[proj].forEach(dep => {
+const matches = [...content.matchAll(/focusedDep\('([^']+)'/g)];
+// Keep the full path format from the dependency declaration
+depMap[fullPath] = matches.map(match => match[1]);
+depMap[fullPath].forEach(dep => {
     if (!reverseDepMap[dep]) reverseDepMap[dep] = [];
-    reverseDepMap[dep].push(proj);
+    reverseDepMap[dep].push(fullPath);
     });
-if (matches.length > 0) console.log(`Deps for ${proj}:`, depMap[proj]);
+if (matches.length > 0) console.log(`Deps for ${fullPath}:`, depMap[fullPath]);
 } else {
-        depMap[proj] = [];
+        depMap[fullPath] = [];
         }
 });
 
 console.log('DepMap sample:', Object.entries(depMap).slice(0, 5));
 
-const nodes = projects.map(proj => {
-const dir = projectPaths[proj].split(path.sep)[0];
+const nodes = projects.map(fullPath => {
+const info = projectInfo[fullPath];
 return {
-        id: proj,
-            label: `${dir}/${proj}`
+        id: fullPath,
+        label: `${info.dir}/${info.name}`
         };
     });
 
@@ -111,7 +117,7 @@ function computeIncluded(focusedProjects, downstreamHops) {
     const included = new Set();
 
     if (focusedProjects.length === 0) {
-        // When no projects are focused, include all projects
+        // When no projects are focused, include all projects (using full paths)
         const projectDirs = ['core', 'ui', 'services', 'features', 'infrastructure', 'extensions'];
         projectDirs.forEach(dir => {
             const dirPath = path.join(__dirname, '..', dir);
@@ -119,7 +125,7 @@ function computeIncluded(focusedProjects, downstreamHops) {
                 const items = fs.readdirSync(dirPath);
                 items.forEach(item => {
                     if (item.startsWith('project-')) {
-                        included.add(item);
+                        included.add(`:${dir}:${item}`);
                     }
                 });
             }
@@ -174,21 +180,16 @@ function checkGitChanges() {
         const newChanges = [...currentChanges].filter(change => !lastKnownChanges.has(change));
 
         if (newChanges.length > 0) {
-            // Map changes to projects
+            // Map changes to projects (using full paths)
             const config = readConfig();
             const included = computeIncluded(config.focusedProjects, config.downstreamHops);
-            const allProjects = [];
-            for (let i = 1; i <= 100; i++) {
-                allProjects.push(`project-${String(i).padStart(3, '0')}`);
-            }
-            const excluded = allProjects.filter(p => !included.has(p));
 
             const changedProjects = new Set();
             newChanges.forEach(change => {
-            // Extract project from path (e.g., core/project-005/src/main/java/... -> project-005)
+            // Extract project from path (e.g., core/project-005/src/main/java/... -> :core:project-005)
             const match = change.match(/^(core|ui|services|features|infrastructure|extensions)\/(project-\d+)/);
             if (match) {
-            changedProjects.add(match[2]);
+            changedProjects.add(`:${match[1]}:${match[2]}`);
             }
             });
 
@@ -201,8 +202,7 @@ function checkGitChanges() {
                 console.log('Detected changes in non-focused projects:', nonFocusedChanged);
                 io.emit('file-changes', {
                     changedProjects: nonFocusedChanged,
-                    included: [...included],
-                    excluded: excluded
+                    included: [...included]
                 });
             }
         }
@@ -235,7 +235,7 @@ app.post('/api/applyIdea', (req, res) => {
         const config = readConfig();
         const included = computeIncluded(config.focusedProjects, config.downstreamHops);
 
-        // Get all projects that actually exist
+        // Get all projects that actually exist (with full paths)
         const allProjects = [];
         const projectDirs = ['core', 'ui', 'services', 'features', 'infrastructure', 'extensions'];
         projectDirs.forEach(dir => {
@@ -244,7 +244,7 @@ app.post('/api/applyIdea', (req, res) => {
                 const items = fs.readdirSync(dirPath);
                 items.forEach(item => {
                     if (item.startsWith('project-')) {
-                        allProjects.push(item);
+                        allProjects.push(`:${dir}:${item}`);
                     }
                 });
             }
@@ -252,13 +252,18 @@ app.post('/api/applyIdea', (req, res) => {
 
         const excluded = allProjects.filter(p => !included.has(p));
 
-        // Write .iml
+        // Write .iml - extract filesystem paths from full project paths
         const imlPath = path.join(__dirname, '..', '.idea', 'modules', 'focus-mode.iml');
         const imlDir = path.dirname(imlPath);
         if (!fs.existsSync(imlDir)) {
             fs.mkdirSync(imlDir, { recursive: true });
         }
-        const excludeXml = excluded.map(p => `<excludeFolder url="file://$MODULE_DIR$/../../${p}" />`).join('\n');
+        const excludeXml = excluded.map(fullPath => {
+            // Convert :dir:project-name to dir/project-name for filesystem
+            const parts = fullPath.split(':').filter(p => p);
+            const fsPath = parts.join('/');
+            return `<excludeFolder url="file://$MODULE_DIR$/../../${fsPath}" />`;
+        }).join('\n');
         const imlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <module type="JAVA_MODULE" version="4">
   <component name="AdditionalModuleElements">

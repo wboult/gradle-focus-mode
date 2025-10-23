@@ -1,12 +1,6 @@
 plugins {
     id 'java'
     id 'application'
-    id 'org.openjfx.javafxplugin' version '0.1.0'
-}
-
-javafx {
-    version = "21"
-    modules = ['javafx.controls', 'javafx.fxml']
 }
 
 application {
@@ -24,11 +18,18 @@ allprojects {
 subprojects {
     apply plugin: 'maven-publish'
 
+    // Common configuration for all Java projects
+    group = 'com.example'
+    version = '1.0-SNAPSHOT'
+
     afterEvaluate {
-        publishing {
-            publications {
-                maven(MavenPublication) {
-                    from components.java
+        // Only configure publishing for projects with the java plugin (not java-platform)
+        if (plugins.hasPlugin('java')) {
+            publishing {
+                publications {
+                    maven(MavenPublication) {
+                        from components.java
+                    }
                 }
             }
         }
@@ -46,15 +47,20 @@ gradle.ext.projectDirs.each { projectName, dir ->
 }
 
 ext {
-    // Define the focused projects here. Example: only project-001 and project-002 are in focus
-    focusedProjects = ['project-057']
+    // Define the focused projects here using full paths. Example: [':core:project-001', ':ui:project-015']
+    // When empty, all projects use project dependencies (normal development mode)
+    // When populated, only focused projects use project dependencies, others use JARs
+    focusedProjects = []
 
     // Method to return project dep if in focus, else jar dep
     // projectName format: :category:project-XXX
     focusedDep = { projectName, jarCoord ->
-        // Extract just the project name (project-XXX) from :category:project-XXX
-        def projName = projectName.tokenize(':').last()
-        if (focusedProjects.contains(projName)) {
+        // If no projects are focused, use project dependencies for all (normal development)
+        if (focusedProjects.isEmpty()) {
+            return project(projectName)
+        }
+        // If focusing on specific projects, only those get project dependencies
+        if (focusedProjects.contains(projectName)) {
             return project(projectName)
         } else {
             return jarCoord

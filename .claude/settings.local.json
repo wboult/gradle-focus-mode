@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew publishToMavenLocal:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(./gradlew help:*)",
+      "Bash(./gradlew tasks:*)",
+      "Bash(python update-build-files.py:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

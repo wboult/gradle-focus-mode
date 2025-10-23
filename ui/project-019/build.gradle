@@ -1,16 +1,4 @@
-plugins {
-    id 'java'
+project(":ui:project-019") {
+    apply plugin: 'java'
+
 }
-
-group = 'com.example'
-version = '1.0-SNAPSHOT'
-
-repositories {
-    mavenCentral()
-    mavenLocal()
-}
-
-dependencies {
-}
-
-

@@ -44,27 +44,27 @@ def included = new HashSet()
 if (ext.focusedProjects.isEmpty()) {
     // Include all projects when no focused projects are selected
     included.addAll(gradle.ext.allProjects.collect { it })
-    println "Focus mode: No focused projects selected - including all projects by default"
+    logger.debug("Focus mode: No focused projects selected - including all projects by default")
 } else {
     ext.focusedProjects.each { proj ->
         included.addAll(getDependents(proj, ext.downstreamHops))
     }
 }
 
-println "Focus mode: focused projects: ${ext.focusedProjects}"
-println "Focus mode: included projects: $included"
+logger.debug("Focus mode: focused projects: ${ext.focusedProjects}")
+logger.debug("Focus mode: included projects: $included")
 
 // Store for IDEA exclusion
 System.setProperty('focus.includedProjects', included.join(','))
-println "Focus logic: set system property focus.includedProjects"
+logger.debug("Focus logic: set system property focus.includedProjects")
 
 // Include only the computed projects
-println "Focus logic: including projects: $included"
+logger.debug("Focus logic: including projects: $included")
 included.each { proj ->
     def dir = gradle.ext.projectDirs[proj]
     if (dir) {
         def projectPath = ":${dir}:${proj}"
-        println "Including project: $projectPath"
+        logger.debug("Including project: $projectPath")
         include projectPath
     }
 }
