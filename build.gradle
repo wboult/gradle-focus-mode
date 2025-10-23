@@ -3,12 +3,14 @@ plugins {
 }
 
 allprojects {
-    apply plugin: 'maven-publish'
-
     repositories {
         mavenCentral()
         mavenLocal()
     }
+}
+
+subprojects {
+    apply plugin: 'maven-publish'
 
     afterEvaluate {
         publishing {
