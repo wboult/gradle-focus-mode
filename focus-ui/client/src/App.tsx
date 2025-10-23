@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import cytoscape, { type Core } from 'cytoscape';
 // @ts-ignore
 import klay from 'cytoscape-klay';
+import { io, Socket } from 'socket.io-client';
 import {
   Search,
   Save,
@@ -15,7 +16,10 @@ import {
   ChevronDown,
   CheckCircle2,
   AlertCircle,
-  Locate
+  Locate,
+  FileText,
+  Focus,
+  RotateCcw
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -94,11 +98,25 @@ export default function FocusModeDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('focused');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [fileChangeNotification, setFileChangeNotification] = useState<{ changedProjects: string[] } | null>(null);
+  const accumulatedChanges = useRef<Set<string>>(new Set());
+
+  // Track saved state for button awareness
+  const [savedConfig, setSavedConfig] = useState<{focusedProjects: string[], downstreamHops: number} | null>(null);
+  const [ideUpdated, setIdeUpdated] = useState<boolean>(false);
 
   const cyRef = useRef<Core | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   // -- Derived Data (Memoized for performance) --
+  // Check if config needs saving
+  const configNeedsSaving = useMemo(() => {
+    if (!savedConfig) return true;
+    const currentFocused = Array.from(focusedProjects).sort();
+    const savedFocused = savedConfig.focusedProjects.sort();
+    return currentFocused.join(',') !== savedFocused.join(',') || downstreamHops !== savedConfig.downstreamHops;
+  }, [focusedProjects, downstreamHops, savedConfig]);
   // Adjacency list for quick lookups: who depends on me? (reverse dependencies)
   const dependentsMap = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -171,6 +189,8 @@ export default function FocusModeDashboard() {
         setGraphData(graph);
         setFocusedProjects(new Set(conf.focusedProjects));
         setDownstreamHops(conf.downstreamHops);
+        setSavedConfig({ focusedProjects: conf.focusedProjects, downstreamHops: conf.downstreamHops });
+        setIdeUpdated(true); // Assume IDE is up to date with loaded config
         setStatus({ msg: 'Data loaded successfully', type: 'success' });
       } catch (e: any) {
         setStatus({ msg: e.message || 'Error loading data', type: 'error' });
@@ -179,6 +199,20 @@ export default function FocusModeDashboard() {
       }
     }
     load();
+
+    // Connect to socket.io for real-time updates
+    socketRef.current = io();
+    socketRef.current.on('file-changes', (data: { changedProjects: string[] }) => {
+      // Accumulate new changes with existing ones
+      data.changedProjects.forEach(proj => accumulatedChanges.current.add(proj));
+      if (accumulatedChanges.current.size > 0) {
+        setFileChangeNotification({ changedProjects: Array.from(accumulatedChanges.current) });
+      }
+    });
+
+    return () => {
+      socketRef.current?.disconnect();
+    };
   }, []);
 
   // Initialize Cytoscape
@@ -338,6 +372,8 @@ export default function FocusModeDashboard() {
         focusedProjects: Array.from(focusedProjects),
         downstreamHops
       });
+      setSavedConfig({ focusedProjects: Array.from(focusedProjects), downstreamHops });
+      setIdeUpdated(false); // IDE needs update after config change
       setStatus({ msg: 'Config saved successfully.', type: 'success' });
       setTimeout(() => setStatus({ msg: 'Ready', type: 'idle' }), 3000);
     } catch (e: any) {
@@ -350,6 +386,7 @@ export default function FocusModeDashboard() {
       setStatus({ msg: 'Applying IDEA exclusions...', type: 'loading' });
       const res = await api.applyIdea();
       if (res.success) {
+        setIdeUpdated(true);
         setStatus({ msg: 'IDEA exclusions applied.', type: 'success' });
       } else {
         setStatus({ msg: 'Error applying: ' + res.error, type: 'error' });
@@ -366,6 +403,15 @@ export default function FocusModeDashboard() {
       else next.add(id);
       return next;
     });
+    // When focus changes, IDE needs updating
+    setIdeUpdated(false);
+    // Remove from accumulated changes when focused
+    accumulatedChanges.current.delete(id);
+    if (accumulatedChanges.current.size === 0) {
+      setFileChangeNotification(null);
+    } else {
+      setFileChangeNotification({ changedProjects: Array.from(accumulatedChanges.current) });
+    }
   };
 
   const centerGraph = () => {
@@ -376,79 +422,134 @@ export default function FocusModeDashboard() {
   // -- Sub-components (inline for single file) --
 
   const NodeDetailsPanel = () => selectedNodeId ? (
-    <div className="bg-white rounded-lg shadow-lg border border-gray-200 w-80 max-h-96 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-200">
-      <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-        <h2 className="font-bold text-sm flex items-center gap-2 truncate">
-          <Info size={16} className="text-blue-500"/>
-          <span className="truncate">{selectedNodeId}</span>
+  <div className="bg-white rounded-lg shadow-lg border border-gray-200 w-80 max-h-96 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-200">
+  <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+  <h2 className="font-bold text-sm flex items-center gap-2 truncate">
+  <Info size={16} className="text-blue-500"/>
+  <span className="truncate">{selectedNodeId}</span>
+  </h2>
+  <button onClick={() => setSelectedNodeId(null)} className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-100 rounded">
+  <X size={16} />
+  </button>
+  </div>
+
+  <div className="max-h-80 overflow-y-auto p-4 space-y-4">
+  {/* Focus Status Toggle for Selected */}
+  <div className="flex items-center justify-between">
+  <span className="text-sm font-medium text-gray-700">Focus Status</span>
+  <button
+  onClick={() => toggleFocus(selectedNodeId)}
+  className={cn(
+  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors",
+  focusedProjects.has(selectedNodeId)
+  ? "bg-red-100 text-red-700 hover:bg-red-200"
+  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+  )}
+  >
+  <Target size={12} />
+  {focusedProjects.has(selectedNodeId) ? 'FOCUSED' : 'NOT FOCUSED'}
+  </button>
+  </div>
+
+  {/* Dependencies Info */}
+  <div>
+  <h3 className="text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">Depends On (Upstream)</h3>
+  <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+  {(dependenciesMap.get(selectedNodeId) || []).length === 0 ? (
+  <div className="p-3 text-xs text-gray-400 italic">No direct dependencies</div>
+  ) : (
+  (dependenciesMap.get(selectedNodeId) || []).map(depId => (
+  <div
+  key={depId}
+  onClick={() => setSelectedNodeId(depId)}
+  className="p-2.5 text-sm border-b border-gray-100 last:border-0 hover:bg-blue-50 cursor-pointer flex items-center gap-2"
+  >
+  <ChevronRight size={12} className="text-gray-400"/>
+  <span className={cn(includedProjects.has(depId) ? "text-gray-900" : "text-gray-500")}>
+  {graphData.nodes.find(n => n.id === depId)?.label || depId}
+  </span>
+  </div>
+  ))
+  )}
+  </div>
+  </div>
+
+  <div>
+  <h3 className="text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">Used By (Downstream)</h3>
+  <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+  {(dependentsMap.get(selectedNodeId) || []).length === 0 ? (
+  <div className="p-3 text-xs text-gray-400 italic">No downstream dependents</div>
+  ) : (
+  (dependentsMap.get(selectedNodeId) || []).map(depId => (
+  <div
+  key={depId}
+  onClick={() => setSelectedNodeId(depId)}
+  className="p-2.5 text-sm border-b border-gray-100 last:border-0 hover:bg-blue-50 cursor-pointer flex items-center gap-2"
+  >
+  <ChevronDown size={12} className="text-gray-400"/>
+  <span className={cn(includedProjects.has(depId) ? "text-gray-900" : "text-gray-500")}>
+  {graphData.nodes.find(n => n.id === depId)?.label || depId}
+  </span>
+  {includedProjects.has(depId) && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 rounded ml-auto">Included</span>}
+  </div>
+  ))
+  )}
+  </div>
+  </div>
+  </div>
+  </div>
+  ) : null;
+
+  const FileChangeNotification = () => fileChangeNotification ? (
+    <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-96 max-h-96 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-200">
+      <div className="p-4 border-b border-gray-200 bg-amber-50 flex justify-between items-center">
+        <h2 className="font-bold text-sm flex items-center gap-2 text-amber-800">
+          <FileText size={16} className="text-amber-600"/>
+          Files Changed in Non-Focused Projects
         </h2>
-        <button onClick={() => setSelectedNodeId(null)} className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-100 rounded">
+        <button onClick={() => setFileChangeNotification(null)} className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-100 rounded">
           <X size={16} />
         </button>
       </div>
 
-      <div className="max-h-80 overflow-y-auto p-4 space-y-4">
-        {/* Focus Status Toggle for Selected */}
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700">Focus Status</span>
-          <button
-            onClick={() => toggleFocus(selectedNodeId)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors",
-              focusedProjects.has(selectedNodeId)
-                ? "bg-red-100 text-red-700 hover:bg-red-200"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            )}
-          >
-            <Target size={12} />
-            {focusedProjects.has(selectedNodeId) ? 'FOCUSED' : 'NOT FOCUSED'}
+      <div className="max-h-64 overflow-y-auto p-4 space-y-3">
+        <p className="text-sm text-gray-600">
+          You've made changes to the following projects that are not currently focused. Would you like to focus them?
+        </p>
+        <div className="space-y-2">
+          {fileChangeNotification.changedProjects.map(projId => (
+            <div key={projId} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+              <span className="text-sm font-medium">{projId}</span>
+              <button
+              onClick={() => {
+              toggleFocus(projId);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+              >
+                <Focus size={12} />
+                Focus
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 pt-2">
+        <button
+        onClick={() => {
+        fileChangeNotification.changedProjects.forEach(projId => toggleFocus(projId));
+        }}
+        className="flex-1 bg-blue-600 text-white py-2 px-3 rounded text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          Focus All
+        </button>
+        <button
+          onClick={() => {
+          setFileChangeNotification(null);
+          accumulatedChanges.current.clear();
+          }}
+        className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm font-medium hover:bg-gray-300 transition-colors"
+        >
+            Dismiss
           </button>
-        </div>
-
-        {/* Dependencies Info */}
-        <div>
-          <h3 className="text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">Depends On (Upstream)</h3>
-          <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-            {(dependenciesMap.get(selectedNodeId) || []).length === 0 ? (
-              <div className="p-3 text-xs text-gray-400 italic">No direct dependencies</div>
-            ) : (
-              (dependenciesMap.get(selectedNodeId) || []).map(depId => (
-                <div
-                  key={depId}
-                  onClick={() => setSelectedNodeId(depId)}
-                  className="p-2.5 text-sm border-b border-gray-100 last:border-0 hover:bg-blue-50 cursor-pointer flex items-center gap-2"
-                >
-                  <ChevronRight size={12} className="text-gray-400"/>
-                  <span className={cn(includedProjects.has(depId) ? "text-gray-900" : "text-gray-500")}>
-                    {graphData.nodes.find(n => n.id === depId)?.label || depId}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">Used By (Downstream)</h3>
-          <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-            {(dependentsMap.get(selectedNodeId) || []).length === 0 ? (
-              <div className="p-3 text-xs text-gray-400 italic">No downstream dependents</div>
-            ) : (
-              (dependentsMap.get(selectedNodeId) || []).map(depId => (
-                <div
-                  key={depId}
-                  onClick={() => setSelectedNodeId(depId)}
-                  className="p-2.5 text-sm border-b border-gray-100 last:border-0 hover:bg-blue-50 cursor-pointer flex items-center gap-2"
-                >
-                  <ChevronDown size={12} className="text-gray-400"/>
-                  <span className={cn(includedProjects.has(depId) ? "text-gray-900" : "text-gray-500")}>
-                    {graphData.nodes.find(n => n.id === depId)?.label || depId}
-                  </span>
-                  {includedProjects.has(depId) && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 rounded ml-auto">Included</span>}
-                </div>
-              ))
-            )}
-          </div>
         </div>
       </div>
     </div>
@@ -528,14 +629,23 @@ export default function FocusModeDashboard() {
         
         {/* Header */}
         <div className="p-4 border-b border-gray-100 bg-gray-50">
-          <h1 className="text-lg font-bold flex items-center gap-2 text-gray-800">
-            <Layers className="text-blue-600" size={20} />
+        <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold flex items-center gap-2 text-gray-800">
+          <Layers className="text-blue-600" size={20} />
             Focus Mode
           </h1>
-          <div className={cn(
-            "text-xs mt-1 flex items-center gap-1.5 font-medium",
-            status.type === 'success' ? 'text-green-600' : 
-            status.type === 'error' ? 'text-red-600' : 
+        <button
+          onClick={() => setFocusedProjects(new Set())}
+          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+          title="Reset focus (unfocus all projects)"
+          >
+          <RotateCcw size={16} />
+        </button>
+        </div>
+        <div className={cn(
+          "text-xs mt-1 flex items-center gap-1.5 font-medium",
+            status.type === 'success' ? 'text-green-600' :
+            status.type === 'error' ? 'text-red-600' :
             status.type === 'loading' ? 'text-blue-600' : 'text-gray-500'
           )}>
             {status.type === 'loading' && <div className="animate-spin w-3 h-3 border-2 border-current border-t-transparent rounded-full" />}
@@ -567,14 +677,17 @@ export default function FocusModeDashboard() {
               </label>
               <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-bold">{downstreamHops}</span>
             </div>
-            <input 
-              id="hops"
-              type="range" 
-              min="0" 
-              max="10"
-              className="w-full accent-blue-600 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-              value={downstreamHops}
-              onChange={(e) => setDownstreamHops(parseInt(e.target.value))}
+            <input
+            id="hops"
+            type="range"
+            min="0"
+            max="10"
+            className="w-full accent-blue-600 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            value={downstreamHops}
+            onChange={(e) => {
+                setDownstreamHops(parseInt(e.target.value));
+                setIdeUpdated(false); // When hops change, IDE needs updating
+              }}
             />
             <div className="flex justify-between text-xs text-gray-400 px-1">
               <span>0</span>
@@ -584,27 +697,33 @@ export default function FocusModeDashboard() {
           </div>
 
           {/* Action Buttons */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
           <button
           onClick={handleUpdateConfig}
-          disabled={status.type === 'loading'}
-          className="flex items-center justify-center gap-1.5 bg-gray-900 text-white py-2 px-3 rounded-md text-sm font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
+          disabled={status.type === 'loading' || !configNeedsSaving}
+          className={cn(
+            "flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium transition-colors",
+            configNeedsSaving
+              ? "bg-gray-900 text-white hover:bg-gray-800"
+              : "bg-gray-100 text-gray-400 cursor-not-allowed"
+          )}
+          title={configNeedsSaving ? "Save current focus configuration" : "Configuration is up to date"}
           >
           <Save size={14} /> Save Config
           </button>
           <button
           onClick={handleApplyIdea}
-          disabled={status.type === 'loading'}
-          className="flex items-center justify-center gap-1.5 bg-blue-600 text-white py-2 px-3 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          disabled={status.type === 'loading' || ideUpdated}
+          className={cn(
+          "flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium transition-colors",
+          !ideUpdated
+            ? "bg-blue-600 text-white hover:bg-blue-700"
+              : "bg-blue-100 text-blue-400 cursor-not-allowed"
+          )}
+          title={ideUpdated ? "IDEA exclusions are up to date" : "Apply focus exclusions to IntelliJ IDEA"}
           >
           <Play size={14} /> Apply to IDE
           </button>
-            <button
-              onClick={() => setFocusedProjects(new Set())}
-              className="flex items-center justify-center gap-1.5 bg-red-600 text-white py-2 px-3 rounded-md text-sm font-medium hover:bg-red-700 transition-colors"
-            >
-              <X size={14} /> Reset Focus
-            </button>
           </div>
         </div>
 
@@ -672,8 +791,14 @@ export default function FocusModeDashboard() {
         )}
 
         {selectedNodeId && (
-          <div className="absolute top-4 right-4 z-40">
-            <NodeDetailsPanel />
+        <div className="absolute top-4 right-4 z-40">
+        <NodeDetailsPanel />
+        </div>
+        )}
+
+        {fileChangeNotification && (
+          <div className="absolute top-4 left-4 z-40">
+            <FileChangeNotification />
           </div>
         )}
 

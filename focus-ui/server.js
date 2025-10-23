@@ -1,7 +1,12 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const app = express();
+const server = createServer(app);
+const io = new Server(server);
 const port = 3000;
 
 // Middleware
@@ -36,6 +41,7 @@ function writeConfig(focusedProjects, downstreamHops) {
 // Global dep maps
 let depMap = {};
 let reverseDepMap = {};
+let lastKnownChanges = new Set();
 
 // Helper to build graph
 function buildGraph() {
@@ -87,11 +93,20 @@ function buildGraph() {
 // Helper to compute included
 function computeIncluded(focusedProjects, downstreamHops) {
     const included = new Set();
-    focusedProjects.forEach(proj => {
-        included.add(proj);
-        // Add dependents up to hops
-        addDependents(proj, downstreamHops, included, new Set());
-    });
+
+    if (focusedProjects.length === 0) {
+        // When no projects are focused, include all projects
+        for (let i = 1; i <= 100; i++) {
+            included.add(`project-${String(i).padStart(3, '0')}`);
+        }
+    } else {
+        focusedProjects.forEach(proj => {
+            included.add(proj);
+            // Add dependents up to hops
+            addDependents(proj, downstreamHops, included, new Set());
+        });
+    }
+
     return included;
 }
 
@@ -108,6 +123,67 @@ function addDependents(proj, hops, included, visited) {
             }
         });
     }
+}
+
+// Helper to check git status and notify of changes in non-focused projects
+function checkGitChanges() {
+    exec('git status --porcelain', { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
+        if (error) {
+            console.error('Error checking git status:', error);
+            return;
+        }
+
+        const lines = stdout.trim().split('\n').filter(line => line.trim());
+        const currentChanges = new Set();
+
+        // Parse git status output
+        lines.forEach(line => {
+            const status = line.substring(0, 2);
+            const filePath = line.substring(3);
+            if (status.trim()) { // Only track modified/added/deleted files
+                currentChanges.add(filePath);
+            }
+        });
+
+        // Find new changes
+        const newChanges = [...currentChanges].filter(change => !lastKnownChanges.has(change));
+
+        if (newChanges.length > 0) {
+            // Map changes to projects
+            const config = readConfig();
+            const included = computeIncluded(config.focusedProjects, config.downstreamHops);
+            const allProjects = [];
+            for (let i = 1; i <= 100; i++) {
+                allProjects.push(`project-${String(i).padStart(3, '0')}`);
+            }
+            const excluded = allProjects.filter(p => !included.has(p));
+
+            const changedProjects = new Set();
+            newChanges.forEach(change => {
+                // Extract project from path (e.g., project-005/src/main/java/... -> project-005)
+                const match = change.match(/^project-\d+/);
+                if (match) {
+                    changedProjects.add(match[0]);
+                }
+            });
+
+            // Find non-focused projects with changes
+            const nonFocusedChanged = [...changedProjects].filter(proj =>
+                !config.focusedProjects.includes(proj)
+            );
+
+            if (nonFocusedChanged.length > 0) {
+                console.log('Detected changes in non-focused projects:', nonFocusedChanged);
+                io.emit('file-changes', {
+                    changedProjects: nonFocusedChanged,
+                    included: [...included],
+                    excluded: excluded
+                });
+            }
+        }
+
+        lastKnownChanges = currentChanges;
+    });
 }
 
 // API endpoints
@@ -171,6 +247,9 @@ app.get('*', (req, res) => {
 // Build graph on startup
 buildGraph();
 
-app.listen(port, () => {
+// Start periodic git checking
+setInterval(checkGitChanges, 5000); // Check every 5 seconds
+
+server.listen(port, () => {
     console.log(`Focus UI server running at http://localhost:${port}`);
 });

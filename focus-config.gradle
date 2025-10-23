@@ -1,2 +1,2 @@
-ext.focusedProjects = ['project-003', 'project-004']
+ext.focusedProjects = []
 ext.downstreamHops = 1
