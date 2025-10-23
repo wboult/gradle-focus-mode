@@ -29,16 +29,25 @@ def getTransitiveDeps(String proj, Set visited = new HashSet()) {
 
 // Get dependents up to N hops (downstream)
 def getDependents(String proj, int hops, Set visited = new HashSet()) {
-    if (hops < 0 || !visited.add(proj)) return []
-    def dependents = ext.reverseDepMap[proj] ?: []
-    [proj] + dependents.collectMany { getDependents(it, hops - 1, visited) }
+    if (!visited.add(proj)) return []
+    def result = [proj]
+    if (hops > 0) {
+        def dependents = ext.reverseDepMap[proj] ?: []
+        result.addAll(dependents.collectMany { getDependents(it, hops-1, visited) })
+    }
+    result
 }
 
 // Compute included projects
 def included = new HashSet()
-ext.focusedProjects.each { proj ->
-    included.addAll(getTransitiveDeps(proj))
-    included.addAll(getDependents(proj, ext.downstreamHops))
+if (ext.focusedProjects.isEmpty()) {
+    // Include all projects when no focused projects are selected
+    included.addAll(gradle.ext.allProjects.collect { it })
+    println "Focus mode: No focused projects selected - including all projects by default"
+} else {
+    ext.focusedProjects.each { proj ->
+        included.addAll(getDependents(proj, ext.downstreamHops))
+    }
 }
 
 println "Focus mode: focused projects: ${ext.focusedProjects}"

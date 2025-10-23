@@ -1,3 +1,2 @@
-// Focus mode configuration
-ext.focusedProjects = ['project-012']
+ext.focusedProjects = ['project-003', 'project-004']
 ext.downstreamHops = 1

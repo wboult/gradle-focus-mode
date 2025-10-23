@@ -26,3 +26,6 @@ gradle-app.setting
 
 # Focus mode generated files
 focus-mode.iml
+
+# Node modules
+**/node_modules/
