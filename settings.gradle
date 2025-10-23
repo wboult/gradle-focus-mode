@@ -5,7 +5,7 @@ apply from: 'projects.gradle'
 
 // Define project directories for nested structure
 gradle.ext.projectDirs.each { projectName, dir ->
-    include projectName, file("${dir}/${projectName}")
+    include ":${dir}:${projectName}"
 }
 
 // Experimental focus mode - set to true to enable dynamic project inclusion
