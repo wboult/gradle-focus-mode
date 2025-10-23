@@ -275,8 +275,7 @@ export default function FocusModeDashboard() {
           spacing: 40
         },
         animationDuration: 500
-      },
-      wheelSensitivity: 1.3,
+      }
     });
 
     cy.on('tap', 'node', (evt) => {
