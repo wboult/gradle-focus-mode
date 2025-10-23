@@ -5,7 +5,8 @@
       "Bash(./gradlew clean:*)",
       "Bash(./gradlew help:*)",
       "Bash(./gradlew tasks:*)",
-      "Bash(python update-build-files.py:*)"
+      "Bash(python update-build-files.py:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

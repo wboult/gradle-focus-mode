@@ -1,2 +1,13 @@
-ext.focusedProjects = []
+// Focused projects - these are the projects you're actively working on
+ext.focusedProjects = [':core:project-005']
 ext.downstreamHops = 1
+
+// Included projects - these are all projects that will be built (focused + dependents)
+ext.includedProjects = [
+    ':core:project-005',
+    ':core:project-006',
+    ':core:project-007',
+    ':core:project-008',
+    ':core:project-009',
+    ':services:project-021'
+]

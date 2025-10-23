@@ -32,10 +32,75 @@ function readConfig() {
 
 // Helper to write config
 function writeConfig(focusedProjects, downstreamHops) {
+    // Compute included projects (with dependencies)
+    const included = Array.from(computeIncluded(focusedProjects, downstreamHops)).sort();
+
+    // Write focus-config.gradle with both focused and included projects
     const focusedStr = focusedProjects.map(p => `'${p}'`).join(', ');
-    const config = `ext.focusedProjects = [${focusedStr}]\next.downstreamHops = ${downstreamHops}`;
+    const includedStr = included.map(p => `'${p}'`).join(',\n    ');
+    const config = `// Focused projects - these are the projects you're actively working on
+ext.focusedProjects = [${focusedStr}]
+ext.downstreamHops = ${downstreamHops}
+
+// Included projects - these are all projects that will be built (focused + dependents)
+ext.includedProjects = [
+    ${includedStr}
+]`;
     const configPath = path.join(__dirname, '..', 'focus-config.gradle');
     fs.writeFileSync(configPath, config);
+
+    // Write settings.gradle with included projects
+    writeSettingsGradle(included);
+}
+
+// Helper to write settings.gradle
+function writeSettingsGradle(includedProjects) {
+    // Group projects by category
+    const byCategory = {
+        core: [],
+        ui: [],
+        services: [],
+        features: [],
+        infrastructure: [],
+        extensions: []
+    };
+
+    includedProjects.forEach(fullPath => {
+        const parts = fullPath.split(':').filter(p => p);
+        const category = parts[0];
+        if (byCategory[category]) {
+            byCategory[category].push(fullPath);
+        }
+    });
+
+    // Generate settings.gradle content
+    let content = `rootProject.name = 'focus-mode'\n\n`;
+
+    const categories = ['core', 'ui', 'services', 'features', 'infrastructure', 'extensions'];
+    categories.forEach(category => {
+        if (byCategory[category].length > 0) {
+            const varName = `${category}Projects`;
+            content += `def ${varName} = [\n`;
+            byCategory[category].forEach(proj => {
+                content += `    '${proj}',\n`;
+            });
+            content += `]\n\n`;
+        }
+    });
+
+    // Create allProjects array
+    const activeCategories = categories.filter(cat => byCategory[cat].length > 0);
+    if (activeCategories.length > 0) {
+        content += `def allProjects = ${activeCategories[0]}Projects`;
+        for (let i = 1; i < activeCategories.length; i++) {
+            content += ` +\n                  ${activeCategories[i]}Projects`;
+        }
+        content += `\n\nallProjects.each { include it }\n`;
+    }
+
+    const settingsPath = path.join(__dirname, '..', 'settings.gradle');
+    fs.writeFileSync(settingsPath, content);
+    console.log(`Updated settings.gradle with ${includedProjects.length} projects`);
 }
 
 // Global dep maps
@@ -132,8 +197,9 @@ function computeIncluded(focusedProjects, downstreamHops) {
         });
     } else {
         focusedProjects.forEach(proj => {
+            // Include the focused project itself
             included.add(proj);
-            // Add dependents up to hops
+            // Add downstream dependents up to N hops
             addDependents(proj, downstreamHops, included, new Set());
         });
     }
@@ -288,6 +354,10 @@ app.get('*', (req, res) => {
 
 // Build graph on startup
 buildGraph();
+
+// Initialize settings.gradle with current config
+const initialConfig = readConfig();
+writeConfig(initialConfig.focusedProjects, initialConfig.downstreamHops);
 
 // Start periodic git checking
 setInterval(checkGitChanges, 5000); // Check every 5 seconds

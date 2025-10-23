@@ -36,15 +36,9 @@ subprojects {
     }
 }
 
-// Configure projects by category using nested project syntax
-apply from: 'projects.gradle'
-
-gradle.ext.projectDirs.each { projectName, dir ->
-    project(":${dir}:${projectName}") {
-        // Project-specific configuration can be added here
-        // Currently inherits from subprojects block above
-    }
-}
+// Note: Individual project configuration is handled by the subprojects block above
+// The project() wrapper in individual build.gradle files provides project-specific config
+// All projects are included in settings.gradle
 
 ext {
     // Define the focused projects here using full paths. Example: [':core:project-001', ':ui:project-015']
@@ -70,34 +64,6 @@ ext {
 
 task publishAllToMavenLocal {
     dependsOn subprojects.collect { it.tasks.named('publishToMavenLocal') }
-}
-
-// Task to apply focus mode (writes exclusions directly)
-task applyFocus {
-    group = 'focus'
-    description = 'Apply focus mode by writing exclusions directly'
-    doLast {
-        def includedStr = System.getProperty('focus.includedProjects')
-        if (includedStr) {
-            def included = includedStr.split(',') as Set
-            def allProjects = (1..100).collect { String.format('project-%03d', it) }
-            def excludedProjects = allProjects.findAll { !included.contains(it) }
-
-            // Write to .idea/modules/focus-mode.iml
-            def imlFile = file('.idea/modules/focus-mode.iml')
-            imlFile.parentFile.mkdirs()
-            def excludeXml = excludedProjects.collect { "<excludeFolder url=\"file://\$MODULE_DIR\$/../../$it\" />" }.join('\n')
-            imlFile.text = """<?xml version="1.0" encoding="UTF-8"?>
-<module type="JAVA_MODULE" version="4">
-  <component name="AdditionalModuleElements">
-    <content url="file://\$MODULE_DIR\$/../.." dumb="true">
-${excludeXml}
-    </content>
-  </component>
-</module>"""
-            println "Wrote exclusions to .idea/modules/focus-mode.iml for: $excludedProjects"
-        }
-    }
 }
 
 

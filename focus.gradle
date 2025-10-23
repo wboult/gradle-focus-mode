@@ -1,7 +1,0 @@
-// Focus mode - applies config and logic
-
-// Load configuration
-apply from: 'focus-config.gradle'
-
-// Apply logic
-apply from: 'focus-logic.gradle'
