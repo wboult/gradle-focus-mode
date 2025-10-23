@@ -71,8 +71,9 @@ projects.forEach(proj => {
 const filePath = path.join(__dirname, '..', projectPaths[proj], 'build.gradle');
 if (fs.existsSync(filePath)) {
 const content = fs.readFileSync(filePath, 'utf8');
-const matches = [...content.matchAll(/focusedDep\('([^']+)'/g)];
-depMap[proj] = matches.map(match => match[1].replace(/^:/, ''));
+const matches = [...content.matchAll(/focusedDep\(':([^:]+):([^']+)'/g)];
+// Extract just the project name (last part after colon) from nested path like :core:project-001
+depMap[proj] = matches.map(match => match[2]); // match[2] is project-XXX
 depMap[proj].forEach(dep => {
     if (!reverseDepMap[dep]) reverseDepMap[dep] = [];
     reverseDepMap[dep].push(proj);
