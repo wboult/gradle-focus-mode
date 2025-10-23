@@ -1,0 +1,6 @@
+plugins {
+    id 'java-platform'
+}
+
+// Core projects aggregate
+description = 'Core foundational projects'

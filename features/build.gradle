@@ -1,0 +1,6 @@
+plugins {
+    id 'java-platform'
+}
+
+// Features projects aggregate
+description = 'Feature implementation projects'

@@ -1,0 +1,6 @@
+plugins {
+    id 'java-platform'
+}
+
+// UI projects aggregate
+description = 'User interface projects'

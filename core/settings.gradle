@@ -1,0 +1,7 @@
+rootProject.name = 'core'
+
+// Include core projects
+(1..10).each { num ->
+    def projectName = String.format('project-%03d', num)
+    include projectName
+}

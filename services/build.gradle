@@ -1,0 +1,6 @@
+plugins {
+    id 'java-platform'
+}
+
+// Services projects aggregate
+description = 'Service layer projects'

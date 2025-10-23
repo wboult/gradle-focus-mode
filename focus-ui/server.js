@@ -45,36 +45,51 @@ let lastKnownChanges = new Set();
 
 // Helper to build graph
 function buildGraph() {
-    const projects = [];
-    for (let i = 1; i <= 100; i++) {
-        const proj = `project-${String(i).padStart(3, '0')}`;
-        projects.push(proj);
-    }
+const projectDirs = [
+'core', 'ui', 'services', 'features', 'infrastructure', 'extensions'
+];
 
-    depMap = {};
-    reverseDepMap = {};
-    projects.forEach(proj => {
-        const filePath = path.join(__dirname, '..', proj, 'build.gradle');
-        if (fs.existsSync(filePath)) {
-            const content = fs.readFileSync(filePath, 'utf8');
-            const matches = [...content.matchAll(/focusedDep\(':project-(\d+)'/g)];
-            depMap[proj] = matches.map(match => `project-${String(match[1]).padStart(3, '0')}`);
-            depMap[proj].forEach(dep => {
-                if (!reverseDepMap[dep]) reverseDepMap[dep] = [];
-                reverseDepMap[dep].push(proj);
+const projects = [];
+const projectPaths = {}; // Map flat project name to its directory path
+
+projectDirs.forEach(dir => {
+const dirPath = path.join(__dirname, '..', dir);
+if (fs.existsSync(dirPath)) {
+const items = fs.readdirSync(dirPath);
+items.forEach(item => {
+if (item.startsWith('project-')) {
+        projects.push(item);
+            projectPaths[item] = path.join(dir, item);
+            }
             });
-            if (matches.length > 0) console.log(`Deps for ${proj}:`, depMap[proj]);
-        } else {
-            depMap[proj] = [];
-        }
+    }
+});
+
+depMap = {};
+reverseDepMap = {};
+projects.forEach(proj => {
+const filePath = path.join(__dirname, '..', projectPaths[proj], 'build.gradle');
+if (fs.existsSync(filePath)) {
+const content = fs.readFileSync(filePath, 'utf8');
+const matches = [...content.matchAll(/focusedDep\('([^']+)'/g)];
+depMap[proj] = matches.map(match => match[1].replace(/^:/, ''));
+depMap[proj].forEach(dep => {
+    if (!reverseDepMap[dep]) reverseDepMap[dep] = [];
+    reverseDepMap[dep].push(proj);
     });
+if (matches.length > 0) console.log(`Deps for ${proj}:`, depMap[proj]);
+} else {
+        depMap[proj] = [];
+        }
+});
 
-    console.log('DepMap sample:', Object.entries(depMap).slice(0, 5));
+console.log('DepMap sample:', Object.entries(depMap).slice(0, 5));
 
-    const nodes = projects.map(proj => {
-        return {
-            id: proj,
-            label: proj
+const nodes = projects.map(proj => {
+const dir = projectPaths[proj].split(path.sep)[0];
+return {
+        id: proj,
+            label: `${dir}/${proj}`
         };
     });
 
@@ -96,9 +111,18 @@ function computeIncluded(focusedProjects, downstreamHops) {
 
     if (focusedProjects.length === 0) {
         // When no projects are focused, include all projects
-        for (let i = 1; i <= 100; i++) {
-            included.add(`project-${String(i).padStart(3, '0')}`);
-        }
+        const projectDirs = ['core', 'ui', 'services', 'features', 'infrastructure', 'extensions'];
+        projectDirs.forEach(dir => {
+            const dirPath = path.join(__dirname, '..', dir);
+            if (fs.existsSync(dirPath)) {
+                const items = fs.readdirSync(dirPath);
+                items.forEach(item => {
+                    if (item.startsWith('project-')) {
+                        included.add(item);
+                    }
+                });
+            }
+        });
     } else {
         focusedProjects.forEach(proj => {
             included.add(proj);
@@ -160,11 +184,11 @@ function checkGitChanges() {
 
             const changedProjects = new Set();
             newChanges.forEach(change => {
-                // Extract project from path (e.g., project-005/src/main/java/... -> project-005)
-                const match = change.match(/^project-\d+/);
-                if (match) {
-                    changedProjects.add(match[0]);
-                }
+            // Extract project from path (e.g., core/project-005/src/main/java/... -> project-005)
+            const match = change.match(/^(core|ui|services|features|infrastructure|extensions)\/(project-\d+)/);
+            if (match) {
+            changedProjects.add(match[2]);
+            }
             });
 
             // Find non-focused projects with changes
@@ -209,10 +233,22 @@ app.post('/api/applyIdea', (req, res) => {
     try {
         const config = readConfig();
         const included = computeIncluded(config.focusedProjects, config.downstreamHops);
+
+        // Get all projects that actually exist
         const allProjects = [];
-        for (let i = 1; i <= 100; i++) {
-            allProjects.push(`project-${String(i).padStart(3, '0')}`);
-        }
+        const projectDirs = ['core', 'ui', 'services', 'features', 'infrastructure', 'extensions'];
+        projectDirs.forEach(dir => {
+            const dirPath = path.join(__dirname, '..', dir);
+            if (fs.existsSync(dirPath)) {
+                const items = fs.readdirSync(dirPath);
+                items.forEach(item => {
+                    if (item.startsWith('project-')) {
+                        allProjects.push(item);
+                    }
+                });
+            }
+        });
+
         const excluded = allProjects.filter(p => !included.has(p));
 
         // Write .iml
